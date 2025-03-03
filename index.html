@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Распознавание объектов</title>
+    <script src="https://unpkg.com/@tensorflow/tfjs"></script>
+    <script src="https://unpkg.com/@tensorflow-models/coco-ssd"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: white;
+        }
+        .container {
+            position: relative;
+            margin-top: 20px;
+        }
+        #video {
+            border: 3px solid #333;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,255,0,0.3);
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #333;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,255,0,0.2);
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 12px 25px;
+            font-size: 16px;
+            background-color: #00cc00;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #00ff00;
+            box-shadow: 0 0 15px rgba(0,255,0,0.5);
+        }
+    </style>
+</head>
+<body>
+    <h1>Распознавание объектов</h1>
+    <div class="status" id="status">Загрузка модели...</div>
+    <div class="container">
+        <video id="video" width="640" height="480" autoplay playsinline muted></video>
+        <canvas id="canvas"></canvas>
+    </div>
+    <div class="controls">
+        <button id="startButton">Включить камеру</button>
+        <button id="stopButton">Выключить камеру</button>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const status = document.getElementById('status');
+        let model = null;
+        let isVideoPlaying = false;
+
+        // Функция для перевода названий объектов на русский
+        function translateObject(name) {
+            const translations = {
+                'person': 'человек',
+                'bicycle': 'велосипед',
+                'car': 'автомобиль',
+                'motorcycle': 'мотоцикл',
+                'airplane': 'самолет',
+                'bus': 'автобус',
+                'train': 'поезд',
+                'truck': 'грузовик',
+                'boat': 'лодка',
+                'cat': 'кошка',
+                'dog': 'собака',
+                'horse': 'лошадь',
+                'bird': 'птица',
+                'chair': 'стул',
+                'couch': 'диван',
+                'table': 'стол',
+                'phone': 'телефон',
+                'laptop': 'ноутбук',
+                'mouse': 'мышь',
+                'keyboard': 'клавиатура',
+                'book': 'книга',
+                'clock': 'часы',
+                'bottle': 'бутылка',
+                'cup': 'чашка'
+            };
+            return translations[name.toLowerCase()] || name;
+        }
+
+        // Загрузка модели
+        async function init() {
+            try {
+                model = await cocoSsd.load();
+                status.textContent = 'Модель загружена! Нажмите "Включить камеру"';
+            } catch (err) {
+                status.textContent = 'Ошибка при загрузке модели: ' + err.message;
+                console.error(err);
+            }
+        }
+
+        // Запуск камеры
+        async function startVideo() {
+            if (!model) {
+                status.textContent = 'Подождите, модель еще загружается...';
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                });
+
+                video.srcObject = stream;
+                video.play();
+
+                // Устанавливаем размеры canvas после загрузки видео
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    isVideoPlaying = true;
+                    detectFrame();
+                };
+            } catch (err) {
+                status.textContent = 'Ошибка доступа к камере: ' + err.message;
+                console.error(err);
+            }
+        }
+
+        // Остановка камеры
+        function stopVideo() {
+            const stream = video.srcObject;
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                isVideoPlaying = false;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        // Обнаружение объектов в кадре
+        async function detectFrame() {
+            if (!isVideoPlaying) return;
+
+            try {
+                const predictions = await model.detect(video);
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                predictions.forEach(prediction => {
+                    const [x, y, width, height] = prediction.bbox;
+                    
+                    // Рисуем полупрозрачный фон
+                    ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
+                    ctx.fillRect(x, y, width, height);
+                    
+                    // Рисуем рамку
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(x, y, width, height);
+                    
+                    // Добавляем текст
+                    const text = `${translateObject(prediction.class)} ${Math.round(prediction.score * 100)}%`;
+                    ctx.font = 'bold 16px Arial';
+                    const textWidth = ctx.measureText(text).width;
+                    
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.fillRect(x, y > 20 ? y - 25 : 0, textWidth + 10, 25);
+                    
+                    ctx.fillStyle = '#00ff00';
+                    ctx.fillText(
+                        text,
+                        x + 5,
+                        y > 20 ? y - 7 : 18
+                    );
+                });
+
+                requestAnimationFrame(detectFrame);
+            } catch (err) {
+                console.error('Ошибка при распознавании:', err);
+            }
+        }
+
+        // Обработчики событий
+        document.getElementById('startButton').onclick = startVideo;
+        document.getElementById('stopButton').onclick = stopVideo;
+
+        // Инициализация
+        init();
+    </script>
+</body>
+</html> 
