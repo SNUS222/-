@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  OPEN_ANSWER
+  IMAGE_CHOICE
+  POLL
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  createdAt    DateTime @default(now())
+
+  tests        Test[]
+  players      Player[]
+}
+
+model Test {
+  id          String     @id @default(cuid())
+  ownerId     String
+  title       String
+  isPublic    Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+
+  owner       User       @relation(fields: [ownerId], references: [id])
+  questions   Question[]
+  sessions    GameSession[]
+}
+
+model Question {
+  id          String       @id @default(cuid())
+  testId      String
+  type        QuestionType
+  prompt      String
+  mediaUrl    String?
+  timeLimitMs Int          @default(15000)
+  order       Int
+
+  test        Test         @relation(fields: [testId], references: [id])
+  answers     Answer[]
+}
+
+model Answer {
+  id          String   @id @default(cuid())
+  questionId  String
+  text        String
+  isCorrect   Boolean  @default(false)
+
+  question    Question @relation(fields: [questionId], references: [id])
+}
+
+model GameSession {
+  id          String   @id @default(cuid())
+  testId      String
+  pinCode     String   @unique
+  state       String
+  createdAt   DateTime @default(now())
+
+  test        Test     @relation(fields: [testId], references: [id])
+  players     Player[]
+  results     Result[]
+}
+
+model Player {
+  id          String         @id @default(cuid())
+  sessionId   String
+  userId      String?
+  nickname    String
+  joinedAt    DateTime       @default(now())
+
+  session     GameSession    @relation(fields: [sessionId], references: [id])
+  user        User?          @relation(fields: [userId], references: [id])
+  answers     PlayerAnswer[]
+}
+
+model PlayerAnswer {
+  id          String   @id @default(cuid())
+  playerId    String
+  questionId  String
+  answerText  String
+  isCorrect   Boolean
+  responseMs  Int
+  points      Int
+
+  player      Player   @relation(fields: [playerId], references: [id])
+}
+
+model Result {
+  id          String   @id @default(cuid())
+  sessionId   String
+  playerId    String
+  score       Int
+  rank        Int
+
+  session     GameSession @relation(fields: [sessionId], references: [id])
+}
